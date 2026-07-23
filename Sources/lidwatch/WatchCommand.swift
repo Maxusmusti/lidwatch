@@ -16,15 +16,29 @@ struct Watch: ParsableCommand {
     @Option(name: .shortAndLong, help: "Battery check interval in seconds")
     var batteryInterval: Int = 60
 
+    @Flag(name: .long, help: "Enable lid-close prevention via pmset disablesleep (requires sudo)")
+    var lidClose: Bool = false
+
+    @Option(name: .long, help: "Max duration in hours for lid-close prevention (default: 4)")
+    var maxHours: Int = 4
+
     func run() throws {
-        logger.info("Starting watch mode (poll: \(interval)s, battery: \(batteryInterval)s)")
+        logger.info("Starting watch mode (poll: \(interval)s, battery: \(batteryInterval)s, lidClose: \(lidClose))")
         let detector = ProcessDetector()
         var assertion = PowerAssertion(name: "lidwatch-watch")
         let battery = BatteryMonitor(checkInterval: TimeInterval(batteryInterval))
+        let lidCloseManager = LidCloseManager()
+        let maxDuration = TimeInterval(maxHours * 3600)
         var lastBatteryCheck = Date.distantPast
         var wasActive = false
+        var lidCloseActive = false
+        var lidCloseEnabledAt: Date?
 
         print("Watching for agent processes (poll every \(interval)s)...")
+        if lidClose {
+            print("Lid-close prevention: ENABLED (will use sudo pmset disablesleep)")
+            print("Max duration: \(maxHours) hours")
+        }
         print("Press Ctrl+C to stop.")
         print()
 
@@ -46,6 +60,17 @@ struct Watch: ParsableCommand {
                     let names = agents.map(\.name).joined(separator: ", ")
                     print("[\(timestamp())] Agents detected: \(names) — sleep prevention ON")
                     logger.info("Assertion created for agents: \(names)")
+
+                    if lidClose && !lidCloseActive {
+                        do {
+                            try lidCloseManager.enable(useSudo: true)
+                            lidCloseActive = true
+                            lidCloseEnabledAt = Date()
+                            print("[\(timestamp())] Lid-close prevention ENABLED (pmset disablesleep 1)")
+                        } catch {
+                            print("[\(timestamp())] WARNING: Failed to enable lid-close prevention: \(error.localizedDescription)")
+                        }
+                    }
                 }
                 wasActive = true
 
@@ -55,16 +80,36 @@ struct Watch: ParsableCommand {
                     switch status {
                     case .critical(let level):
                         print("[\(timestamp())] CRITICAL: Battery at \(level)% — connect power immediately!")
+                        if lidCloseActive {
+                            disableLidClose(lidCloseManager, &lidCloseActive, &lidCloseEnabledAt,
+                                          reason: "low battery")
+                        }
                     case .warning(let level):
                         print("[\(timestamp())] WARNING: Battery at \(level)% — consider connecting power")
+                        if lidCloseActive && lidCloseManager.shouldAutoDisable(
+                            batteryLevel: level, isOnAC: false) {
+                            disableLidClose(lidCloseManager, &lidCloseActive, &lidCloseEnabledAt,
+                                          reason: "battery below \(LidCloseManager.lowBatteryThreshold)%")
+                        }
                     default:
                         break
                     }
+                }
+
+                if lidCloseActive, let since = lidCloseEnabledAt,
+                   lidCloseManager.shouldAutoDisable(enabledSince: since, maxDuration: maxDuration) {
+                    disableLidClose(lidCloseManager, &lidCloseActive, &lidCloseEnabledAt,
+                                  reason: "max duration of \(maxHours) hours reached")
                 }
             } else if assertion.isActive {
                 assertion.release()
                 print("[\(timestamp())] No agents detected — sleep prevention OFF")
                 logger.info("Assertion released — all agents exited")
+
+                if lidCloseActive {
+                    disableLidClose(lidCloseManager, &lidCloseActive, &lidCloseEnabledAt,
+                                  reason: "all agents exited")
+                }
                 wasActive = false
             } else if wasActive {
                 wasActive = false
@@ -72,6 +117,20 @@ struct Watch: ParsableCommand {
 
             Thread.sleep(forTimeInterval: TimeInterval(interval))
         }
+    }
+}
+
+private func disableLidClose(_ manager: LidCloseManager,
+                             _ active: inout Bool,
+                             _ enabledAt: inout Date?,
+                             reason: String) {
+    do {
+        try manager.disable(useSudo: true)
+        active = false
+        enabledAt = nil
+        print("[\(timestamp())] Lid-close prevention DISABLED (\(reason))")
+    } catch {
+        print("[\(timestamp())] WARNING: Failed to disable lid-close prevention: \(error.localizedDescription)")
     }
 }
 

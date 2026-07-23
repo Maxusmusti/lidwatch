@@ -6,12 +6,19 @@ struct LidwatchMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
 
+    private var menuBarIcon: String {
+        if appState.isLidClosePreventionEnabled {
+            return "lock.slash.fill"
+        }
+        return appState.isAssertionActive ? "cup.and.saucer.fill" : "cup.and.saucer"
+    }
+
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(appState)
         } label: {
-            Image(systemName: appState.isAssertionActive ? "cup.and.saucer.fill" : "cup.and.saucer")
+            Image(systemName: menuBarIcon)
         }
         .menuBarExtraStyle(.window)
 

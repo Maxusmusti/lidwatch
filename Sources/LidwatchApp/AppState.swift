@@ -14,16 +14,25 @@ final class AppState: ObservableObject {
     @Published var watchedProcessNames: [String]
     @Published var showThermalWarnings: Bool = true
 
+    @Published var isLidClosePreventionEnabled: Bool = false
+    @Published var lidCloseError: String?
+    @Published var lidCloseEnabledSince: Date?
+    @Published var maxLidCloseDuration: TimeInterval = LidCloseManager.defaultMaxDuration
+
     private var assertion = PowerAssertion(name: "lidwatch-app")
     private var detector: ProcessDetector
     private let safetyChecker = SafetyChecker()
     private let batteryMonitor = BatteryMonitor()
     let notificationManager = NotificationManager()
+    let lidCloseManager = LidCloseManager()
 
     private var pollTimer: Timer?
     private var batteryTimer: Timer?
 
     var statusText: String {
+        if isLidClosePreventionEnabled {
+            return "Lid-Close Protected"
+        }
         if isAssertionActive {
             return detectedAgents.isEmpty ? "Active (Forced)" : "Active"
         }
@@ -47,6 +56,8 @@ final class AppState: ObservableObject {
         self.watchedProcessNames = names
         self.showThermalWarnings = UserDefaults.standard.bool(forKey: "showThermalWarnings")
         self.detector = ProcessDetector(watchlist: AgentWatchlist(agents: names))
+
+        checkStuckDisablesleep()
         startMonitoring()
     }
 
@@ -56,12 +67,14 @@ final class AppState: ObservableObject {
         poll()
         checkBattery()
         refreshClamshell()
+        syncLidCloseState()
 
         pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             self?.poll()
         }
         batteryTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.checkBattery()
+            self?.checkLidCloseSafetyGuards()
         }
         logger.info("Monitoring started")
     }
@@ -74,6 +87,9 @@ final class AppState: ObservableObject {
         if assertion.isActive {
             assertion.release()
             isAssertionActive = false
+        }
+        if isLidClosePreventionEnabled {
+            disableLidClosePrevention()
         }
         logger.info("Monitoring stopped")
     }
@@ -105,6 +121,14 @@ final class AppState: ObservableObject {
                     body: "Sleep prevention deactivated"
                 )
                 logger.info("Assertion released — all agents exited")
+
+                if isLidClosePreventionEnabled {
+                    disableLidClosePrevention()
+                    notificationManager.send(
+                        title: "Lid-Close Prevention Off",
+                        body: "All agents exited — lid-close prevention disabled"
+                    )
+                }
             }
         }
     }
@@ -148,6 +172,99 @@ final class AppState: ObservableObject {
     func setShowThermalWarnings(_ show: Bool) {
         showThermalWarnings = show
         UserDefaults.standard.set(show, forKey: "showThermalWarnings")
+    }
+
+    // MARK: - Lid-Close Prevention
+
+    func toggleLidClosePrevention() {
+        if isLidClosePreventionEnabled {
+            disableLidClosePrevention()
+        } else {
+            enableLidClosePrevention()
+        }
+    }
+
+    func enableLidClosePrevention() {
+        lidCloseError = nil
+        do {
+            try lidCloseManager.enable()
+            isLidClosePreventionEnabled = true
+            lidCloseEnabledSince = Date()
+            logger.info("Lid-close prevention enabled via GUI")
+            notificationManager.send(
+                title: "Lid-Close Prevention On",
+                body: "Safe to close lid — sleep is disabled system-wide"
+            )
+        } catch LidCloseError.authenticationCancelled {
+            lidCloseError = "Authentication cancelled"
+            logger.info("User cancelled lid-close auth prompt")
+        } catch {
+            lidCloseError = error.localizedDescription
+            logger.error("Failed to enable lid-close prevention: \(error.localizedDescription)")
+        }
+    }
+
+    func disableLidClosePrevention() {
+        lidCloseError = nil
+        do {
+            try lidCloseManager.disable()
+            isLidClosePreventionEnabled = false
+            lidCloseEnabledSince = nil
+            logger.info("Lid-close prevention disabled via GUI")
+        } catch {
+            lidCloseError = error.localizedDescription
+            logger.error("Failed to disable lid-close prevention: \(error.localizedDescription)")
+        }
+    }
+
+    func syncLidCloseState() {
+        isLidClosePreventionEnabled = lidCloseManager.isEnabled
+        if isLidClosePreventionEnabled && lidCloseEnabledSince == nil {
+            lidCloseEnabledSince = Date()
+        }
+    }
+
+    private func checkLidCloseSafetyGuards() {
+        guard isLidClosePreventionEnabled else { return }
+
+        var batteryLevel = 100
+        var isOnAC = true
+        switch batteryStatus {
+        case .normal(let level), .warning(let level), .critical(let level):
+            batteryLevel = level
+            isOnAC = false
+        case .onAC:
+            break
+        }
+
+        if lidCloseManager.shouldAutoDisable(batteryLevel: batteryLevel, isOnAC: isOnAC) {
+            disableLidClosePrevention()
+            notificationManager.send(
+                title: "Lid-Close Prevention Auto-Disabled",
+                body: "Battery below \(LidCloseManager.lowBatteryThreshold)% — sleep restored"
+            )
+            logger.warning("Auto-disabled lid-close prevention due to low battery")
+            return
+        }
+
+        if let since = lidCloseEnabledSince,
+           lidCloseManager.shouldAutoDisable(enabledSince: since, maxDuration: maxLidCloseDuration) {
+            disableLidClosePrevention()
+            let hours = Int(maxLidCloseDuration / 3600)
+            notificationManager.send(
+                title: "Lid-Close Prevention Auto-Disabled",
+                body: "Maximum duration of \(hours) hours reached — sleep restored"
+            )
+            logger.warning("Auto-disabled lid-close prevention due to max duration")
+        }
+    }
+
+    private func checkStuckDisablesleep() {
+        if lidCloseManager.isEnabled {
+            logger.warning("Detected stuck disablesleep=1 on app launch")
+            isLidClosePreventionEnabled = true
+            lidCloseEnabledSince = Date()
+        }
     }
 
     private func isWarningOrCritical(_ status: BatteryStatus) -> Bool {

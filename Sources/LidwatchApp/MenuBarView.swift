@@ -15,6 +15,9 @@ struct MenuBarView: View {
                 Divider()
             }
 
+            lidCloseSection
+            Divider()
+
             if let report = appState.clamshellReport {
                 clamshellSection(report)
                 Divider()
@@ -22,7 +25,9 @@ struct MenuBarView: View {
 
             batterySection
 
-            if appState.isAssertionActive && appState.showThermalWarnings {
+            if (appState.isAssertionActive || appState.isLidClosePreventionEnabled)
+                && appState.showThermalWarnings
+            {
                 thermalAdvisory
                 Divider()
             }
@@ -42,18 +47,26 @@ struct MenuBarView: View {
         .frame(width: 280)
         .onAppear {
             appState.refreshClamshell()
+            appState.syncLidCloseState()
         }
     }
 
     private var statusHeader: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(appState.isAssertionActive ? Color.green : Color.gray)
+                .fill(statusColor)
                 .frame(width: 8, height: 8)
             Text(appState.statusText)
                 .font(.headline)
             Spacer()
         }
+    }
+
+    private var statusColor: Color {
+        if appState.isLidClosePreventionEnabled {
+            return .blue
+        }
+        return appState.isAssertionActive ? .green : .gray
     }
 
     private var agentSection: some View {
@@ -75,6 +88,44 @@ struct MenuBarView: View {
         }
     }
 
+    private var lidCloseSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(isOn: Binding(
+                get: { appState.isLidClosePreventionEnabled },
+                set: { _ in appState.toggleLidClosePrevention() }
+            )) {
+                HStack(spacing: 6) {
+                    Image(systemName: appState.isLidClosePreventionEnabled
+                        ? "lock.slash.fill" : "lock.fill")
+                        .foregroundColor(appState.isLidClosePreventionEnabled ? .blue : .secondary)
+                        .frame(width: 16)
+                    Text("Lid-Close Prevention")
+                }
+            }
+
+            if appState.isLidClosePreventionEnabled {
+                Text("Safe to close lid — sleep is disabled")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                if let since = appState.lidCloseEnabledSince {
+                    Text("Active since \(since, style: .time)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                Text("Requires admin password to enable")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if let error = appState.lidCloseError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+        }
+    }
+
     private func clamshellSection(_ report: ClamshellReport) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Clamshell Readiness")
@@ -82,17 +133,26 @@ struct MenuBarView: View {
                 .foregroundColor(.secondary)
             ForEach(report.checks.filter { $0.name != "Architecture" }, id: \.name) { check in
                 HStack(spacing: 6) {
-                    Image(systemName: check.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundColor(check.passed ? .green : .red)
-                        .frame(width: 16)
+                    Image(
+                        systemName: check.passed
+                            ? "checkmark.circle.fill" : "xmark.circle.fill"
+                    )
+                    .foregroundColor(check.passed ? .green : .red)
+                    .frame(width: 16)
                     Text(check.name)
                         .font(.callout)
                     Spacer()
                 }
             }
-            Text(report.readiness.description)
-                .font(.caption)
-                .foregroundColor(readinessColor(report.readiness))
+            if appState.isLidClosePreventionEnabled {
+                Text("Lid-close prevention active — clamshell prereqs overridden")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+            } else {
+                Text(report.readiness.description)
+                    .font(.caption)
+                    .foregroundColor(readinessColor(report.readiness))
+            }
         }
     }
 
@@ -114,6 +174,11 @@ struct MenuBarView: View {
                 Text("Battery: \(level)% — connect power")
                     .foregroundColor(.orange)
             }
+            if appState.isLidClosePreventionEnabled {
+                Text("Lid-close prevention will auto-disable below \(LidCloseManager.lowBatteryThreshold)%")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
             Divider()
         case .critical(let level):
             HStack(spacing: 6) {
@@ -132,14 +197,14 @@ struct MenuBarView: View {
             Image(systemName: "thermometer.medium")
                 .foregroundColor(.orange)
                 .frame(width: 16)
-            Text("Ensure Mac is on a hard, ventilated surface")
+            Text("Keep Mac on a hard surface — lid ventilation blocked")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
     }
 
     private var forceToggle: some View {
-        Toggle("Force Enable", isOn: Binding(
+        Toggle("Force Enable (Idle Sleep)", isOn: Binding(
             get: { appState.isForceEnabled },
             set: { appState.setForceEnabled($0) }
         ))

@@ -14,31 +14,46 @@ struct Check: ParsableCommand {
         logger.info("Running pre-flight checks")
         let safety = SafetyChecker()
         let report = safety.checkClamshellReadiness()
+        let lidClose = LidCloseManager()
 
         print("Clamshell Readiness Report")
         print("==========================")
         print()
+
+        let disablesleepActive = lidClose.isEnabled
+        if disablesleepActive {
+            print("  Lid-close prevention: ACTIVE (safe to close lid)")
+            print("    pmset disablesleep = 1")
+            print()
+        }
 
         for check in report.checks {
             print(check)
         }
         print()
 
-        switch report.readiness {
-        case .ready:
-            print("Status: READY — safe to close lid")
-            if report.isAppleSilicon {
-                print("  All Apple Silicon clamshell prerequisites met.")
+        if disablesleepActive {
+            print("Status: LID-CLOSE PROTECTED")
+            print("  pmset disablesleep is active — clamshell prerequisites overridden.")
+            print("  Run 'sudo pmset -a disablesleep 0' to restore normal sleep behavior.")
+        } else {
+            switch report.readiness {
+            case .ready:
+                print("Status: READY — safe to close lid")
+                if report.isAppleSilicon {
+                    print("  All Apple Silicon clamshell prerequisites met.")
+                }
+            case .partial:
+                print("Status: PARTIAL — some prerequisites missing")
+                let missing = report.checks.filter { !$0.passed }
+                for item in missing {
+                    print("  → \(item.name): \(item.detail)")
+                }
+            case .notReady:
+                print("Status: NOT READY — keep lid open")
+                print("  Sleep prevention will protect against idle sleep only.")
+                print("  Tip: Run 'lidwatch watch --lid-close' to enable pmset disablesleep.")
             }
-        case .partial:
-            print("Status: PARTIAL — some prerequisites missing")
-            let missing = report.checks.filter { !$0.passed }
-            for item in missing {
-                print("  → \(item.name): \(item.detail)")
-            }
-        case .notReady:
-            print("Status: NOT READY — keep lid open")
-            print("  Sleep prevention will protect against idle sleep only.")
         }
 
         print()

@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "lidwatch", targets: ["lidwatch"]),
+        .executable(name: "LidwatchApp", targets: ["LidwatchApp"]),
         .library(name: "LidwatchCore", targets: ["LidwatchCore"]),
     ],
     dependencies: [
@@ -21,6 +22,11 @@ let package = Package(
                 "LidwatchCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .executableTarget(
+            name: "LidwatchApp",
+            dependencies: ["LidwatchCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .target(

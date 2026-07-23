@@ -21,7 +21,7 @@ let package = Package(
             dependencies: [
                 "LidwatchCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ],
+            ]
         ),
         .executableTarget(
             name: "LidwatchApp",

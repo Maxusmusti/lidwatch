@@ -5,7 +5,7 @@ import os
 
 private let logger = Logger(subsystem: "com.lidwatch.core", category: "SystemInfo")
 
-public struct SystemInfo {
+public struct SystemInfo: Sendable {
     public init() {}
 
     public var isAppleSilicon: Bool {

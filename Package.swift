@@ -30,7 +30,20 @@ let package = Package(
         .testTarget(
             name: "LidwatchCoreTests",
             dependencies: ["LidwatchCore"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(["-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"]),
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+                    "-framework", "Testing",
+                    "-Xlinker", "-rpath", "-Xlinker",
+                    "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+                    "-Xlinker", "-rpath", "-Xlinker",
+                    "/Library/Developer/CommandLineTools/Library/Developer/usr/lib",
+                ]),
+            ]
         ),
     ]
 )

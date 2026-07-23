@@ -6,6 +6,6 @@ struct Lidwatch: ParsableCommand {
         commandName: "lidwatch",
         abstract: "Prevent idle sleep while AI agents are active",
         version: "0.1.0",
-        subcommands: [Wrap.self, Status.self]
+        subcommands: [Wrap.self, Status.self, Check.self, Watch.self]
     )
 }

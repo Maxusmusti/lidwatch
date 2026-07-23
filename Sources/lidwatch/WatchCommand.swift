@@ -5,6 +5,8 @@ import os
 
 private let logger = Logger(subsystem: "com.lidwatch.cli", category: "Watch")
 
+private var _watchLidCloseActive = false
+
 struct Watch: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Watch for agent processes and prevent sleep while active"
@@ -43,10 +45,17 @@ struct Watch: ParsableCommand {
         print()
 
         signal(SIGINT) { _ in
+            if _watchLidCloseActive {
+                print("\nRestoring sleep settings...")
+                _restoreSleepSettings()
+            }
             print("\nStopping watch mode...")
             Darwin.exit(0)
         }
         signal(SIGTERM) { _ in
+            if _watchLidCloseActive {
+                _restoreSleepSettings()
+            }
             Darwin.exit(0)
         }
 
@@ -64,9 +73,14 @@ struct Watch: ParsableCommand {
                     if lidClose && !lidCloseActive {
                         do {
                             try lidCloseManager.enable(useSudo: true)
-                            lidCloseActive = true
-                            lidCloseEnabledAt = Date()
-                            print("[\(timestamp())] Lid-close prevention ENABLED (pmset disablesleep 1)")
+                            if lidCloseManager.isEnabled {
+                                lidCloseActive = true
+                                _watchLidCloseActive = true
+                                lidCloseEnabledAt = Date()
+                                print("[\(timestamp())] \u{2713} Lid-close prevention is ON \u{2014} safe to close your lid")
+                            } else {
+                                print("[\(timestamp())] ERROR: pmset disablesleep command succeeded but state did not change")
+                            }
                         } catch {
                             print("[\(timestamp())] WARNING: Failed to enable lid-close prevention: \(error.localizedDescription)")
                         }
@@ -127,11 +141,24 @@ private func disableLidClose(_ manager: LidCloseManager,
     do {
         try manager.disable(useSudo: true)
         active = false
+        _watchLidCloseActive = false
         enabledAt = nil
         print("[\(timestamp())] Lid-close prevention DISABLED (\(reason))")
     } catch {
         print("[\(timestamp())] WARNING: Failed to disable lid-close prevention: \(error.localizedDescription)")
     }
+}
+
+private func _restoreSleepSettings() {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+    process.arguments = ["pmset", "-a", "disablesleep", "0"]
+    process.standardInput = FileHandle.standardInput
+    process.standardOutput = FileHandle.standardOutput
+    process.standardError = FileHandle.standardError
+    try? process.run()
+    process.waitUntilExit()
+    _watchLidCloseActive = false
 }
 
 private func timestamp() -> String {

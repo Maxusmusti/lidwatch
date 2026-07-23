@@ -15,7 +15,7 @@ Previous solutions required an external monitor for "clamshell mode." lidwatch e
 ### Menubar App (Recommended)
 
 ```bash
-brew tap meyceoz/lidwatch
+brew tap Maxusmusti/lidwatch
 brew install lidwatch
 ```
 
@@ -62,7 +62,7 @@ lidwatch includes multiple safety guards to prevent your Mac from running unatte
 ### Homebrew
 
 ```bash
-brew tap meyceoz/lidwatch
+brew tap Maxusmusti/lidwatch
 brew install lidwatch
 ```
 

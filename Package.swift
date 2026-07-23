@@ -1,4 +1,4 @@
-// swift-tools-version:6.0
+// swift-tools-version:5.9
 
 import PackageDescription
 
@@ -22,22 +22,18 @@ let package = Package(
                 "LidwatchCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
-            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
             name: "LidwatchApp",
-            dependencies: ["LidwatchCore"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            dependencies: ["LidwatchCore"]
         ),
         .target(
-            name: "LidwatchCore",
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            name: "LidwatchCore"
         ),
         .testTarget(
             name: "LidwatchCoreTests",
             dependencies: ["LidwatchCore"],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
                 .unsafeFlags(["-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"]),
             ],
             linkerSettings: [

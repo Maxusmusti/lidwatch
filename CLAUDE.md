@@ -9,13 +9,32 @@ swift build
 swift test
 swift run lidwatch status
 swift run lidwatch wrap -- <command>
+swift run lidwatch check
+swift run lidwatch watch
 ```
+
+### Menubar App
+
+```bash
+swift build --product LidwatchApp
+swift run LidwatchApp
+```
+
+## CLI Commands
+
+- `lidwatch wrap -- <command>` — Wrap a command with caffeinate to prevent idle sleep
+- `lidwatch status` — Show system info, power assertions, and detected agents
+- `lidwatch check` — Run pre-flight checks for clamshell mode readiness
+- `lidwatch watch` — Daemon mode: poll for agents, assert sleep prevention while active
 
 ## Project Structure
 
 - `Sources/lidwatch/` - CLI executable (Swift ArgumentParser)
-- `Sources/LidwatchCore/` - Core library (PowerAssertion, SystemInfo)
+- `Sources/LidwatchCore/` - Core library (PowerAssertion, ProcessDetector, SafetyChecker, BatteryMonitor, SystemInfo)
+- `Sources/LidwatchApp/` - SwiftUI menubar app (MenuBarExtra, AppState, SettingsView, NotificationManager)
 - `Tests/LidwatchCoreTests/` - Unit tests
+- `scripts/` - Homebrew formula template
+- `.github/workflows/` - CI and release automation
 - `eval/` - Factory eval harness
 
 ## Conventions

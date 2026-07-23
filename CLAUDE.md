@@ -1,6 +1,6 @@
 # lidwatch
 
-Lightweight macOS utility that prevents idle sleep while AI agents (Claude Code, Cursor, Aider) are active. Validates clamshell mode prerequisites on Apple Silicon.
+Lightweight macOS utility that prevents sleep (including lid-close sleep) while AI agents (Claude Code, Cursor, Aider) are active. Uses `pmset disablesleep` for lid-close prevention with safety guards.
 
 ## Build
 
@@ -24,13 +24,14 @@ swift run LidwatchApp
 
 - `lidwatch wrap -- <command>` — Wrap a command with caffeinate to prevent idle sleep
 - `lidwatch status` — Show system info, power assertions, and detected agents
-- `lidwatch check` — Run pre-flight checks for clamshell mode readiness
+- `lidwatch check` — Show system status including pmset disablesleep state
 - `lidwatch watch` — Daemon mode: poll for agents, assert sleep prevention while active
+- `lidwatch watch --lid-close` — Daemon mode with lid-close prevention via pmset disablesleep (requires sudo)
 
 ## Project Structure
 
 - `Sources/lidwatch/` - CLI executable (Swift ArgumentParser)
-- `Sources/LidwatchCore/` - Core library (PowerAssertion, ProcessDetector, SafetyChecker, BatteryMonitor, SystemInfo)
+- `Sources/LidwatchCore/` - Core library (PowerAssertion, ProcessDetector, SafetyChecker, BatteryMonitor, SystemInfo, LidCloseManager)
 - `Sources/LidwatchApp/` - SwiftUI menubar app (MenuBarExtra, AppState, SettingsView, NotificationManager)
 - `Tests/LidwatchCoreTests/` - Unit tests
 - `scripts/` - Homebrew formula template

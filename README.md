@@ -1,26 +1,61 @@
 # lidwatch
 
-Prevent macOS idle sleep while AI coding agents are running. Purpose-built for Apple Silicon Macs.
+Prevent your Mac from sleeping when you close the lid while AI agents are running. No external monitor needed.
+
+Built for Apple Silicon. Works with Claude Code, Cursor, Aider, and any process you configure.
 
 ## The Problem
 
-You close your MacBook lid while Claude Code, Cursor, or Aider runs a long task. macOS puts the machine to sleep. The SSH connection drops, the agent loses context, and hours of work are wasted.
+You close your MacBook lid while Claude Code runs a long task. macOS puts the machine to sleep. The SSH connection drops, the agent loses context, and hours of work are wasted.
 
-`lidwatch` solves this by creating IOKit power assertions that prevent idle sleep while agent processes are active — and automatically releasing them when agents exit. On Apple Silicon, it also validates whether your setup supports clamshell mode (lid-closed operation) before you close the lid.
+Previous solutions required an external monitor for "clamshell mode." lidwatch eliminates that requirement entirely — it uses `pmset disablesleep` to prevent sleep even with the lid closed, with safety guards that auto-disable on low battery or after a max duration.
 
 ## Quick Start
 
+### Menubar App (Recommended)
+
 ```bash
-# Install via Homebrew (once the tap is set up)
 brew tap meyceoz/lidwatch
 brew install lidwatch
-
-# Wrap a command — prevents sleep for its duration
-lidwatch wrap -- claude
-
-# Or watch for agent processes in the background
-lidwatch watch
 ```
+
+1. Launch the Lidwatch menubar app
+2. Click the menubar icon
+3. Toggle **Lid-Close Prevention** ON
+4. Enter your password when prompted (native macOS authorization dialog)
+5. Close your lid and walk away
+6. The app auto-disables when agents exit (or toggle OFF manually)
+
+### CLI
+
+```bash
+# Watch for agents with lid-close prevention (uses sudo)
+lidwatch watch --lid-close
+
+# Or wrap a single command (idle sleep prevention only, no root needed)
+lidwatch wrap -- claude
+```
+
+## How It Works
+
+lidwatch uses `pmset disablesleep` to disable sleep system-wide, including lid-close sleep. This is the same mechanism macOS itself uses — it's not a hack or workaround.
+
+- **Menubar app:** Prompts for your password via a native macOS authorization dialog (no terminal sudo)
+- **CLI (`--lid-close`):** Uses `sudo pmset` — run from a terminal with sudo access
+- **Fallback (`wrap`):** Uses `caffeinate -i -s` for idle sleep prevention only — no root required, but won't prevent lid-close sleep
+
+### Safety Guards
+
+lidwatch includes multiple safety guards to prevent your Mac from running unattended indefinitely:
+
+| Guard | Behavior |
+|---|---|
+| Low battery | Auto-disables lid-close prevention below 20% battery |
+| Max duration | Auto-disables after 4 hours (configurable via `--max-hours`) |
+| Agent exit | Auto-disables when all watched agent processes exit |
+| Stuck detection | On app launch, checks for leftover `disablesleep=1` from a prior crash |
+
+**Thermal warning:** When lid-close prevention is active, keep your Mac on a hard, ventilated surface — never on fabric or bedding. Closed-lid operation with blocked ventilation can increase temperatures significantly.
 
 ## Installation
 
@@ -45,39 +80,44 @@ cp .build/release/lidwatch /usr/local/bin/
 
 ### Menubar App
 
-The menubar app (`LidwatchApp`) provides a visual interface with the same functionality as the CLI.
-
 ```bash
 swift build -c release --product LidwatchApp
-# Run the app
 .build/release/LidwatchApp
 ```
 
-## Usage
+## CLI Usage
+
+### `lidwatch watch`
+
+Daemon mode. Polls for agent processes and creates power assertions when any are detected. With `--lid-close`, also enables `pmset disablesleep` for full lid-close prevention.
+
+```bash
+# Watch with lid-close prevention (recommended)
+lidwatch watch --lid-close
+
+# Custom poll interval and max duration
+lidwatch watch --lid-close --interval 10 --max-hours 8
+
+# Idle sleep prevention only (no root required)
+lidwatch watch
+```
 
 ### `lidwatch wrap -- <command>`
 
-Wraps a command with `caffeinate -i -s` to prevent idle and system sleep for the command's duration. The sleep assertion is automatically released when the command exits.
+Wraps a command with `caffeinate -i -s` to prevent idle and system sleep for the command's duration. No root required. Does not prevent lid-close sleep.
 
 ```bash
-# Prevent sleep while Claude Code runs
 lidwatch wrap -- claude
-
-# Prevent sleep for any long-running command
 lidwatch wrap -- python train.py
 lidwatch wrap -- npm run build
 ```
 
-### `lidwatch watch`
+### `lidwatch check`
 
-Daemon mode. Polls for known agent processes and creates a power assertion when any are detected. Releases when all agents exit. Monitors battery level and warns at 20% (critical at 10%).
+Shows system status including `pmset disablesleep` state, clamshell readiness, battery level, and detected agents.
 
 ```bash
-# Start watching with default 5-second poll interval
-lidwatch watch
-
-# Custom poll and battery check intervals
-lidwatch watch --interval 10 --battery-interval 30
+lidwatch check
 ```
 
 ### `lidwatch status`
@@ -88,71 +128,11 @@ Shows system information, active power assertions, and detected agent processes.
 lidwatch status
 ```
 
-Output:
-
-```
-System Information
-  Architecture: Apple Silicon
-  AC Power: Yes
-  External Displays: 1
-
-Power Assertions:
-  ...
-
-Agent Processes:
-  12345 claude
-```
-
-### `lidwatch check`
-
-Runs pre-flight checks for clamshell mode (lid-closed operation). Reports whether your setup meets Apple Silicon's hardware requirements.
-
-```bash
-lidwatch check
-```
-
-Output:
-
-```
-Clamshell Readiness Report
-==========================
-
-  ✓ Architecture: Apple Silicon
-  ✓ AC Power: Connected
-  ✓ External Display: Connected
-  ✓ External Keyboard: Connected
-  ✓ External Mouse/Trackpad: Connected
-
-Status: READY — safe to close lid
-```
-
-## Clamshell Mode (Lid-Closed Operation)
-
-On Apple Silicon Macs, closing the lid triggers hardware-level sleep that **no software can override**. To use your Mac with the lid closed, you need **clamshell mode**, which requires:
-
-| Prerequisite | Required | Why |
-|---|---|---|
-| External display | Yes | macOS needs a display to keep the system awake |
-| AC power | Yes | Apple Silicon will not enter clamshell mode on battery |
-| External keyboard | Recommended | You need input after closing the lid |
-| External mouse/trackpad | Recommended | You need a pointing device after closing the lid |
-
-When all prerequisites are met, macOS enters clamshell mode automatically when you close the lid — the system stays awake and uses the external display.
-
-**What `lidwatch` does and doesn't do:**
-
-- **Does:** Prevent *idle* sleep (the kind that happens after inactivity with the lid open)
-- **Does:** Validate clamshell prerequisites so you know if lid-closed operation is safe
-- **Does:** Monitor battery and warn before it gets critically low
-- **Does not:** Override lid-close sleep — that's a hardware behavior on Apple Silicon that no software can bypass
-
-Run `lidwatch check` before closing your lid to verify your setup is ready.
-
 ## Configuration
 
 ### Custom Agent Watchlist
 
-By default, `lidwatch` watches for: `claude`, `cursor`, `aider`, `codex`.
+By default, lidwatch watches for: `claude`, `cursor`, `aider`, `codex`.
 
 To add custom processes, create `~/.config/lidwatch/agents.json`:
 
@@ -162,35 +142,20 @@ To add custom processes, create `~/.config/lidwatch/agents.json`:
 }
 ```
 
-## Safety
-
-### Thermal
-
-When sleep prevention is active with the lid closed:
-
-- Place your Mac on a hard, ventilated surface — never on fabric or bedding
-- Closed-lid operation with blocked ventilation can increase temperatures by ~13°C
-- The menubar app shows a thermal advisory when assertions are active
-
-### Battery
-
-- `lidwatch` uses `caffeinate -i -s` (idle + system sleep prevention only)
-- It does **not** use `-d` (display sleep prevention), which causes 1.4x faster battery drain
-- Battery warnings trigger at 20%, critical alerts at 10%
-- Connect AC power before starting long agent sessions
-
 ## Comparison
 
 | Feature | lidwatch | caffeinate | Amphetamine | claude-code-sleep-preventer |
 |---|---|---|---|---|
+| Lid-close prevention | Yes | No | No | No |
+| No external display needed | Yes | N/A | N/A | N/A |
 | Auto-detect AI agents | Yes | No | No | Claude only |
-| Clamshell validation | Yes | No | No | No |
+| Safety guards (battery/duration) | Yes | No | Partial | No |
+| Native macOS auth | Yes | N/A | N/A | No |
 | Battery monitoring | Yes | No | Yes | No |
 | Configurable watchlist | Yes | N/A | N/A | No |
 | Menubar app | Yes | No | Yes | No |
 | CLI tool | Yes | Yes | No | Yes |
 | Auto-release on exit | Yes | Yes (with -w) | Manual | Yes |
-| Apple Silicon aware | Yes | No | Partial | No |
 | Open source | Yes | Yes (built-in) | No | Yes |
 
 ## Architecture
@@ -200,19 +165,20 @@ Sources/
 ├── lidwatch/              CLI executable (Swift ArgumentParser)
 │   ├── Lidwatch.swift       Entry point, command registration
 │   ├── WrapCommand.swift    Wrap command with caffeinate
-│   ├── WatchCommand.swift   Daemon mode with process polling
+│   ├── WatchCommand.swift   Daemon mode with process polling + lid-close
 │   ├── StatusCommand.swift  System info and assertions display
-│   └── CheckCommand.swift   Clamshell readiness checks
+│   └── CheckCommand.swift   System checks including pmset state
 ├── LidwatchCore/          Shared library
 │   ├── PowerAssertion.swift   IOKit power assertion management
 │   ├── ProcessDetector.swift  Agent process scanning
 │   ├── SafetyChecker.swift    Clamshell prerequisite validation
 │   ├── SystemInfo.swift       Architecture, power, display detection
-│   └── BatteryMonitor.swift   Battery level monitoring and alerts
+│   ├── BatteryMonitor.swift   Battery level monitoring and alerts
+│   └── LidCloseManager.swift  pmset disablesleep management + safety guards
 └── LidwatchApp/           SwiftUI menubar application
     ├── LidwatchApp.swift    App entry point with MenuBarExtra
-    ├── AppState.swift       Observable state bridging core library
-    ├── MenuBarView.swift    Dropdown menu UI
+    ├── AppState.swift       Observable state with lid-close integration
+    ├── MenuBarView.swift    Dropdown menu UI with lid-close toggle
     ├── SettingsView.swift   Preferences panel
     └── NotificationManager.swift  User notifications
 ```
@@ -222,6 +188,7 @@ Sources/
 - macOS 13+ (Ventura or later)
 - Apple Silicon (arm64) — primary target; Intel is best-effort
 - Swift 5.9+ (build from source)
+- Admin password (for lid-close prevention only)
 
 ## License
 

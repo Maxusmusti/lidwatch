@@ -25,6 +25,7 @@ public enum LidCloseError: Error, LocalizedError, Sendable, Equatable {
 
 public protocol CommandRunning: Sendable {
     func run(executablePath: String, arguments: [String]) throws -> (status: Int32, output: String)
+    func runInteractive(executablePath: String, arguments: [String]) throws -> Int32
 }
 
 public struct SystemCommandRunner: CommandRunning {
@@ -45,6 +46,18 @@ public struct SystemCommandRunner: CommandRunning {
         let output = String(data: data, encoding: .utf8) ?? ""
         let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
         return (status: process.terminationStatus, output: output + errorOutput)
+    }
+
+    public func runInteractive(executablePath: String, arguments: [String]) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 }
 
@@ -73,30 +86,32 @@ public struct LidCloseManager {
     public func enable(useSudo: Bool = false) throws {
         logger.info("Enabling lid-close sleep prevention (useSudo: \(useSudo))")
 
-        let result: (status: Int32, output: String)
         if useSudo {
-            result = try commandRunner.run(
+            let status = try commandRunner.runInteractive(
                 executablePath: "/usr/bin/sudo",
                 arguments: ["pmset", "-a", "disablesleep", "1"]
             )
+            if status != 0 {
+                logger.error("Failed to enable lid-close prevention (exit code \(status))")
+                throw LidCloseError.commandFailed("sudo pmset failed with exit code \(status)")
+            }
         } else {
-            result = try commandRunner.run(
+            let result = try commandRunner.run(
                 executablePath: "/usr/bin/osascript",
                 arguments: [
                     "-e",
                     "do shell script \"pmset -a disablesleep 1\" with administrator privileges",
                 ]
             )
-        }
-
-        if result.status != 0 {
-            let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-            if output.contains("User canceled") || output.contains("(-128)") {
-                logger.warning("User cancelled authentication for lid-close prevention")
-                throw LidCloseError.authenticationCancelled
+            if result.status != 0 {
+                let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                if output.contains("User canceled") || output.contains("(-128)") {
+                    logger.warning("User cancelled authentication for lid-close prevention")
+                    throw LidCloseError.authenticationCancelled
+                }
+                logger.error("Failed to enable lid-close prevention: \(output)")
+                throw LidCloseError.commandFailed(output)
             }
-            logger.error("Failed to enable lid-close prevention: \(output)")
-            throw LidCloseError.commandFailed(output)
         }
 
         logger.info("Lid-close sleep prevention enabled")
@@ -105,30 +120,32 @@ public struct LidCloseManager {
     public func disable(useSudo: Bool = false) throws {
         logger.info("Disabling lid-close sleep prevention (useSudo: \(useSudo))")
 
-        let result: (status: Int32, output: String)
         if useSudo {
-            result = try commandRunner.run(
+            let status = try commandRunner.runInteractive(
                 executablePath: "/usr/bin/sudo",
                 arguments: ["pmset", "-a", "disablesleep", "0"]
             )
+            if status != 0 {
+                logger.error("Failed to disable lid-close prevention (exit code \(status))")
+                throw LidCloseError.commandFailed("sudo pmset failed with exit code \(status)")
+            }
         } else {
-            result = try commandRunner.run(
+            let result = try commandRunner.run(
                 executablePath: "/usr/bin/osascript",
                 arguments: [
                     "-e",
                     "do shell script \"pmset -a disablesleep 0\" with administrator privileges",
                 ]
             )
-        }
-
-        if result.status != 0 {
-            let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-            if output.contains("User canceled") || output.contains("(-128)") {
-                logger.warning("User cancelled authentication for lid-close disable")
-                throw LidCloseError.authenticationCancelled
+            if result.status != 0 {
+                let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                if output.contains("User canceled") || output.contains("(-128)") {
+                    logger.warning("User cancelled authentication for lid-close disable")
+                    throw LidCloseError.authenticationCancelled
+                }
+                logger.error("Failed to disable lid-close prevention: \(output)")
+                throw LidCloseError.commandFailed(output)
             }
-            logger.error("Failed to disable lid-close prevention: \(output)")
-            throw LidCloseError.commandFailed(output)
         }
 
         logger.info("Lid-close sleep prevention disabled")

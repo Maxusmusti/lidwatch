@@ -18,6 +18,13 @@ final class TrackingCommandRunner: CommandRunning, @unchecked Sendable {
         callIndex += 1
         return results[idx]
     }
+
+    func runInteractive(executablePath: String, arguments: [String]) throws -> Int32 {
+        capturedCalls.append((executablePath: executablePath, arguments: arguments))
+        let idx = min(callIndex, results.count - 1)
+        callIndex += 1
+        return results[idx].status
+    }
 }
 
 @Suite("LidCloseManager")
